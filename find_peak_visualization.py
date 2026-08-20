@@ -73,6 +73,7 @@ class FindPeakElementTrace(Scene):
             FadeIn(self.array_heading),
             run_time=1.6,
         )
+        self.add(self.dim_overlays)
 
         # Initialization: n, i and j are introduced exactly where the source does it.
         self._move_highlight(3, color=self.CYAN, run_time=0.45)
@@ -206,12 +207,23 @@ class FindPeakElementTrace(Scene):
     def _build_code(self):
         raw_lines = CPP_SOURCE.splitlines()
         rendered_lines = VGroup()
+        indentation = []
         for raw in raw_lines:
-            shown = raw.replace(" ", "\u00a0") if raw else "\u00a0"
+            content = raw.lstrip(" ")
+            indentation.append(len(raw) - len(content))
+            shown = content.replace(" ", "\u00a0") if content else "\u00a0"
             mob = Text(shown, font="Menlo", font_size=15, color=self.TEXT)
             self._color_code_line(mob)
             rendered_lines.add(mob)
         rendered_lines.arrange(DOWN, buff=0.047, aligned_edge=LEFT)
+
+        # Pango does not include leading spaces in a Text mobject's visible
+        # bounds, so aligning the lines directly would flatten the indentation.
+        # Offset each line by an explicit monospace character width instead.
+        indent_probe = Text("0000", font="Menlo", font_size=15)
+        space_width = indent_probe.get_width() / 4
+        for line, spaces in zip(rendered_lines, indentation):
+            line.shift(spaces * space_width * RIGHT)
 
         max_w = self.code_w - 0.64
         if rendered_lines.get_width() > max_w:
@@ -263,6 +275,7 @@ class FindPeakElementTrace(Scene):
         bar_base = 0.77
         max_value = max(self.nums)
         self.array_items = VGroup()
+        self.dim_overlays = VGroup()
         self.bars = []
         self.dots = []
         self.cells = []
@@ -287,6 +300,10 @@ class FindPeakElementTrace(Scene):
             index_text.move_to([x, -0.05, 0])
             item = VGroup(bar, dot, cell, value_text, index_text)
             self.array_items.add(item)
+            overlay = Rectangle(width=step * 0.96, height=2.42)
+            overlay.set_fill(self.SURFACE, opacity=0).set_stroke(width=0)
+            overlay.move_to([x, 1.02, 0])
+            self.dim_overlays.add(overlay)
             self.bars.append(bar)
             self.dots.append(dot)
             self.cells.append(cell)
@@ -324,9 +341,16 @@ class FindPeakElementTrace(Scene):
         next_interval,
         widths,
     ):
-        self._set_iteration_badge(f"STEP {number}", self.GOLD)
+        if number > 1:
+            self.remove(self.k_marker, self.comparison_group, self.decision_group, self.status_group)
+            self.k_marker = VGroup()
+            self.comparison_group = VGroup()
+            self.decision_group = VGroup()
+            self.status_group = VGroup()
+            self.wait(0.20)
         self._move_highlight(7, color=self.GOLD, run_time=0.35)
         self._move_highlight(8, color=self.GOLD, run_time=0.45)
+        self._set_iteration_badge(f"STEP {number}", self.GOLD)
         self._set_status(
             f"ITERATION {number}",
             [("i", str(i), self.CYAN), ("k", str(k), self.GOLD), ("j", str(j), self.PINK)],
@@ -355,7 +379,6 @@ class FindPeakElementTrace(Scene):
             end = start
         color = color or self.CYAN
         target = self._highlight_box(start, end, color)
-        target.set_opacity(1)
         if self.active_highlight.get_opacity() == 0:
             self.active_highlight.become(target)
             self.play(FadeIn(self.active_highlight), run_time=run_time)
@@ -382,7 +405,8 @@ class FindPeakElementTrace(Scene):
         box.set_fill(color, opacity=0.12).set_stroke(color, width=1, opacity=0.7)
         label.move_to(box)
         new_badge = VGroup(box, label).move_to(self.iteration_badge)
-        self.play(Transform(self.iteration_badge, new_badge), run_time=0.35)
+        self.iteration_badge.become(new_badge)
+        self.wait(0.20)
 
     def _make_status(self, eyebrow, entries, detail):
         eyebrow_text = Text(eyebrow, font="Avenir Next", font_size=11, weight=BOLD, color=self.MUTED)
@@ -404,9 +428,10 @@ class FindPeakElementTrace(Scene):
         new_group = self._make_status(eyebrow, entries, detail)
         if len(self.status_group) == 0:
             self.status_group.become(new_group)
-            self.play(FadeIn(self.status_group, shift=0.08 * UP), run_time=run_time)
+            self.add(self.status_group)
         else:
-            self.play(Transform(self.status_group, new_group), run_time=run_time)
+            self.status_group.become(new_group)
+        self.wait(run_time)
 
     def _set_k_marker(self, k):
         ring = Circle(radius=0.12).set_stroke(self.GOLD, width=2.4).set_fill(self.GOLD, opacity=0.06)
@@ -419,10 +444,10 @@ class FindPeakElementTrace(Scene):
         new_marker = VGroup(ring, pointer, label)
         if len(self.k_marker) == 0:
             self.k_marker.become(new_marker)
-            self.play(FadeIn(self.k_marker, scale=0.8), FlashAround(ring, color=self.GOLD), run_time=0.65)
+            self.add(self.k_marker)
         else:
-            self.play(Transform(self.k_marker, new_marker), run_time=0.6)
-            self.play(FlashAround(ring, color=self.GOLD), run_time=0.35)
+            self.k_marker.become(new_marker)
+        self.play(FlashAround(self.k_marker[0], color=self.GOLD), run_time=0.65)
 
     def _make_value_box(self, role, index, color):
         label = Text(f"{role} · nums[{index}]", font="Avenir Next", font_size=11, color=self.MUTED)
@@ -442,21 +467,15 @@ class FindPeakElementTrace(Scene):
         boxes.move_to([self.trace_x, -1.78, 0])
         if len(self.comparison_group) == 0:
             self.comparison_group.become(boxes)
-            self.play(
-                FadeIn(self.comparison_group, shift=0.08 * UP),
-                *[FlashAround(self.cells[idx], color=color) for idx, color in [
-                    (left_index, self.BLUE), (center_index, self.GOLD), (right_index, self.PINK)
-                ]],
-                run_time=run_time,
-            )
+            self.add(self.comparison_group)
         else:
-            self.play(
-                Transform(self.comparison_group, boxes),
-                *[FlashAround(self.cells[idx], color=color) for idx, color in [
-                    (left_index, self.BLUE), (center_index, self.GOLD), (right_index, self.PINK)
-                ]],
-                run_time=run_time,
-            )
+            self.comparison_group.become(boxes)
+        self.play(
+            *[FlashAround(self.cells[idx], color=color) for idx, color in [
+                (left_index, self.BLUE), (center_index, self.GOLD), (right_index, self.PINK)
+            ]],
+            run_time=run_time,
+        )
 
     def _show_decision(self, text, color, run_time=0.55):
         statement = Text(text, font="Menlo", font_size=14, weight=BOLD, color=color)
@@ -466,9 +485,10 @@ class FindPeakElementTrace(Scene):
         new_group = VGroup(statement, underline)
         if len(self.decision_group) == 0:
             self.decision_group.become(new_group)
-            self.play(FadeIn(self.decision_group, shift=0.05 * UP), run_time=run_time)
+            self.add(self.decision_group)
         else:
-            self.play(Transform(self.decision_group, new_group), run_time=run_time)
+            self.decision_group.become(new_group)
+        self.wait(run_time)
 
     def _make_interval(self, i, j, widths):
         y = -2.93
@@ -488,18 +508,19 @@ class FindPeakElementTrace(Scene):
     def _set_interval(self, i, j, widths, run_time=0.85, initial=False):
         new_group = self._make_interval(i, j, widths)
         dim_anims = []
-        for index, item in enumerate(self.array_items):
-            target_opacity = 1.0 if i <= index <= j else 0.15
-            dim_anims.append(item.animate.set_opacity(target_opacity))
+        for index, overlay in enumerate(self.dim_overlays):
+            target_opacity = 0.0 if i <= index <= j else 0.78
+            dim_anims.append(overlay.animate.set_fill(self.SURFACE, opacity=target_opacity))
         for index, line in enumerate(self.graph_lines):
             target_opacity = 0.55 if i <= index and index + 1 <= j else 0.10
             dim_anims.append(line.animate.set_opacity(target_opacity))
 
         if initial or len(self.interval_group) == 0:
             self.interval_group.become(new_group)
-            self.play(FadeIn(self.interval_group), *dim_anims, run_time=run_time)
+            self.add(self.interval_group)
         else:
-            self.play(Transform(self.interval_group, new_group), *dim_anims, run_time=run_time)
+            self.interval_group.become(new_group)
+        self.play(*dim_anims, run_time=run_time)
 
     def _finish_peak(self, peak_index):
         self._move_highlight(15, color=self.GREEN, run_time=0.45)
@@ -522,10 +543,10 @@ class FindPeakElementTrace(Scene):
         complexity = Text("11  →  5  →  2  →  found     O(log n)", font="Menlo", font_size=13, color=self.TEXT)
         complexity.move_to([self.trace_x, -3.15, 0])
 
+        self.remove(self.comparison_group)
+        self.decision_group.become(result)
+        self.interval_group.become(complexity)
         self.play(
-            FadeOut(self.comparison_group, shift=0.08 * DOWN),
-            Transform(self.decision_group, result),
-            Transform(self.interval_group, complexity),
             peak_bar.animate.set_fill(self.GREEN, opacity=0.80).set_stroke(self.GREEN, width=2.0, opacity=1),
             peak_cell.animate.set_fill(self.GREEN, opacity=0.15).set_stroke(self.GREEN, width=2.0, opacity=1),
             peak_dot.animate.scale(1.55).set_color(self.GREEN),
@@ -533,9 +554,12 @@ class FindPeakElementTrace(Scene):
             run_time=1.05,
         )
         self.play(
-            FlashAround(halo, color=self.GREEN, stroke_width=4),
+            halo.animate.scale(1.16).set_stroke(self.GREEN, width=3.4, opacity=1),
             self.active_highlight.animate.set_fill(self.GREEN, opacity=0.18),
-            run_time=0.8,
+            run_time=0.4,
+        )
+        self.play(
+            halo.animate.scale(1 / 1.16).set_stroke(self.GREEN, width=2.2, opacity=0.8),
+            run_time=0.4,
         )
         self.wait(2.0)
-

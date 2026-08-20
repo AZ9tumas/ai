@@ -1,0 +1,15 @@
+camera:
+  resolution: (3456, 2234)
+  fps: 60
+  background_color: "#07111F"
+  background_opacity: 1.0
+
+file_writer:
+  ffmpeg_bin: "/Users/az9umas/Desktop/ai/render_tools/ffmpeg_hq.sh"
+  video_codec: "libx264"
+  pixel_format: "yuv420p"
+
+scene:
+  show_animation_progress: False
+  leave_progress_bars: False
+
